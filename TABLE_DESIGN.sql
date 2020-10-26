@@ -776,12 +776,25 @@ FROM "EM" INNER JOIN ST ON "EM".EM_STCODE = ST.ST_CODE;
 /*-------------------------------
  매장명     직원명     직원등급
 --------------------------------*/
+-- VIEW의 활용
 SELECT STNAME, EMNAME, EMLEVEL
 FROM EMPINFO WHERE STCODE = 'I001';
+
+-- INLIN-VIEW 
+SELECT STNAME, EMNAME, EMLEVEL
+FROM (SELECT ST.ST_CODE AS STCODE, 
+             ST.ST_NAME AS STNAME,
+            "EM".EM_NAME AS EMNAME,
+            "EM".EM_LEVEL AS EMLEVEL
+      FROM "EM" INNER JOIN ST ON "EM".EM_STCODE = ST.ST_CODE)
+WHERE STCODE = 'I001';
+
+SELECT * FROM EM;
 
 -- 2. 특정 직원코드를 입력받아 직원정보 출력
 /*-------------------------------
  매장명     직원명     직원등급
+  ST         EM         EM
 --------------------------------*/
 SELECT STNAME, EMNAME, EMLEVEL
 FROM EMPINFO WHERE EMCODE = '1001';
@@ -809,13 +822,64 @@ FROM OT INNER JOIN OD ON OT.OT_ODCODE = OD.OD_CODE
 --3. 특정 직원코드를 입력받아 한 달간 판매 리스트 출력
 /*------------------------------------------------
  매장명     직원명     주문코드   상품명   수량   금액
+   ST        EM       OD, OT     GO     OT      
+ ST_CODE   EM_CODE   OT_ODCODE         OT_QTY
+ ST_NAME   EM_NAME   OT_GOCODE
 --------------------------------------------------*/
 SELECT STNAME, EMNAME, ODCODE, GONAME, QTY, AMOUNT 
 FROM SALESINFO
 WHERE EMCODE = '1001' AND 
       ODCODE >= ADD_MONTHS(SYSDATE, -1);
       --TO_CHAR(ODCODE, 'YYYYMMDD') >= TO_CHAR(ADD_MONTHS(SYSDATE, -1), 'YYYYMMDD');
-        
+
+-- INLINE-VIEW의 활용
+-- 1. 직원정보
+SELECT  ST.ST_CODE,
+        ST.ST_NAME,
+        EM.EM_CODE,
+        EM.EM_NAME       
+FROM ST INNER JOIN EM ON ST.ST_CODE = EM.EM_STCODE;
+
+-- 2. 판매 정보
+SELECT  OT.OT_ODCODE,
+        OT.OT_GOCODE,
+        OT.OT_QTY
+FROM OT;
+ -- 2-1 상품명과 단가를 조회하기 위한 GOODS테이블과의 조인
+ SELECT  OT.OT_ODCODE,
+        OT.OT_GOCODE,
+        GO.GO_NAME,
+        GO.GO_PRICE,
+        OT.OT_QTY,
+        GO.GO_PRICE * OT.OT_QTY
+ FROM OT INNER JOIN GO ON OT.OT_GOCODE = GO.GO_CODE;
+
+-- 3. 직원정보 판매 정보 조인
+SELECT EI.ST_NAME, 
+       EI.EM_CODE, 
+       EI.EM_NAME,
+       OD.OD_CODE,
+       SI.GO_NAME,
+       SI.GO_PRICE,
+       SI.OT_QTY,
+       SI.GO_PRICE * SI.OT_QTY
+FROM (SELECT  ST.ST_CODE,
+        ST.ST_NAME,
+        EM.EM_CODE,
+        EM.EM_NAME       
+      FROM ST INNER JOIN EM ON ST.ST_CODE = EM.EM_STCODE) EI
+INNER JOIN OD ON EI.ST_CODE = OD.OD_EMSTCODE AND EI.EM_CODE = OD.OD_EMCODE
+INNER JOIN (SELECT  OT.OT_ODCODE,
+                    OT.OT_GOCODE,
+                    GO.GO_NAME,
+                    GO.GO_PRICE,
+                    OT.OT_QTY,
+                    GO.GO_PRICE * OT.OT_QTY
+            FROM OT INNER JOIN GO ON OT.OT_GOCODE = GO.GO_CODE) SI
+            ON SI.OT_ODCODE = OD.OD_CODE
+WHERE EI.EM_CODE = '1001' AND 
+      OD.OD_CODE >= ADD_MONTHS(SYSDATE, -1);
+            
 --4. 특정 상품코드를 입력 받아 한 달간 해당 상품의 판매 현황 리스트 출력
 /*---------------------------------------
    주문코드   상품명   수량   금액
@@ -825,4 +889,175 @@ FROM SALESINFO
 WHERE GOCODE = '1001' AND STCODE = 'I001' AND
       --ODCODE >= ADD_MONTHS(SYSDATE, -1);
       TO_CHAR(ODCODE, 'YYYYMMDD') >= TO_CHAR(ADD_MONTHS(SYSDATE, -1), 'YYYYMMDD');
+
+/* 2020-10-26 GROUPING 
+    1. FUNCTION을 활용한 GROUPING
+       : COUNT, SUM, AVG, MIN, MAX
+    2. GROUP BY를 활용한 GROUPING
+    
+    * GROUP BY절을 사용한 경우 GROUP BY절에 사용한 컬럼만이 
+      SELECT절에서 호출할 수 있습니다.
+*/
+SELECT * FROM OT;
+-- 주문건수
+SELECT COUNT(OT_ODCODE) FROM OT;
+SELECT OT_ODCODE, OT_GOCODE
+FROM OT
+GROUP BY OT_ODCODE;
+
+-- 특정 고객의 주문내역 출력
+/*--------------------------------------------
+   고객코드   고객명      주문건수   주문총금액
+    CM OD     CM          OD       GO * OT    
+----------------------------------------------*/
+SELECT * FROM CM;
+SELECT * FROM OD;
+SELECT * FROM OT;
+-- STEP 1 고객별 주문 건수
+CREATE OR REPLACE VIEW VIEW1
+AS
+SELECT  OD.OD_CMCODE AS CMCODE,
+        CM.CM_NAME AS CMNAME, 
+        OD.OD_CODE AS ODCODE
+FROM OD INNER JOIN CM ON OD.OD_CMCODE = CM.CM_CODE
+GROUP BY OD.OD_CMCODE, CM.CM_NAME, OD.OD_CODE;
+
+-- STEP 2 주문별 주문금액
+CREATE OR REPLACE VIEW VIEW2
+AS
+SELECT  OT.OT_ODCODE AS ODCODE, 
+        SUM(GO.GO_PRICE * OT.OT_QTY) AS AMOUNT
+FROM OT INNER JOIN GO ON OT.OT_GOCODE = GO.GO_CODE
+GROUP BY OT.OT_ODCODE;
+
+-- STEP 3 고객별 주문건수, 주문총금액 
+SELECT CMCODE, CMNAME, COUNT(V1.ODCODE), SUM(AMOUNT)
+FROM VIEW1 V1 INNER JOIN VIEW2 V2 ON V1.ODCODE = V2.ODCODE
+GROUP BY CMCODE, CMNAME;
+
+
+
+/* JOIN과 GROUP BY 활용 예제 */
+/* 특정일(특정범위)의 상품별 판매 현황 
+    -- 일일 매출현황
+    -- 월별 매출현황
+    ---------------------------------------------------
+      상품코드     상품명       주문건수       매출액
+       OT GO        GO           OT        OT * GO
+    ---------------------------------------------------
+*/
+-- STEP 1 VIEW 생성
+SELECT * FROM OT WHERE TO_CHAR(OT_ODCODE, 'YYYYMMDD') = '20201015';
+SELECT * FROM OT WHERE TO_CHAR(OT_ODCODE, 'YYYYMM') = '202010';
+
+CREATE OR REPLACE VIEW SALESINFO
+AS
+SELECT  TO_CHAR(OT.OT_ODCODE, 'YYYYMMDD') AS ODCODE,
+        OT.OT_GOCODE AS GOCODE,
+        GO.GO_NAME AS GONAME,
+        COUNT(OT.OT_GOCODE) AS CNT,
+        SUM(OT.OT_QTY) AS QTY,
+        SUM(OT.OT_QTY * GO.GO_PRICE) AS AMOUNT
+FROM OT INNER JOIN GO ON OT.OT_GOCODE = GO.GO_CODE
+GROUP BY TO_CHAR(OT.OT_ODCODE, 'YYYYMMDD'), OT.OT_GOCODE, GO.GO_NAME;
+
+SELECT * FROM SALESINFO;
+-- STEP2 VIEW 활용
+  -- 특정일의 매출현황
+  SELECT SUM(AMOUNT)
+  FROM SALESINFO
+  WHERE ODCODE = '20201013';
+  
+  -- 특정일의 상품별 매출현황
+  SELECT GOCODE, GONAME, CNT, AMOUNT
+  FROM SALESINFO 
+  WHERE ODCODE = '20201015';
+  
+  -- 특정범위의 상품별 매출현황
+  SELECT GOCODE, GONAME, 
+         SUM(CNT) AS CNT, 
+         SUM(AMOUNT) AS AMOUNT
+  FROM SALESINFO 
+  WHERE ODCODE >= '20201013' AND ODCODE <= '20201015'
+  GROUP BY GOCODE, GONAME;
+
+  -- 특정 월별 상품별 매출 현황
+  SELECT * FROM SALESINFO;
+  SELECT GOCODE, GONAME, 
+         SUM(CNT) AS CNT, 
+         SUM(AMOUNT) AS AMOUNT
+  FROM SALESINFO 
+  WHERE SUBSTR(ODCODE, 1, 6) = '202010'
+  GROUP BY GOCODE, GONAME;
+ 
+  
+/* 특정 상품의 월별 매출 추이 
+    --------------------------------------
+      매출월        주문건수       매출액
+    --------------------------------------
+*/
+
+SELECT * FROM SALESINFO;
+SELECT TO_CHAR(OD_CODE, 'YYYYMMDD'), COUNT(TO_CHAR(OD_CODE, 'YYYYMMDD'))
+FROM OD
+GROUP BY TO_CHAR(OD_CODE, 'YYYYMMDD');
+
+
+
+SELECT  SUBSTR(SI.ODCODE, 1,6) AS SALSEMONTH,
+        SI2.CNT,
+        SUM(AMOUNT) AS AMOUNT
+FROM SALESINFO SI 
+     INNER JOIN   
+     (SELECT  TO_CHAR(OD_CODE, 'YYYYMM') AS ODDATE, COUNT(*) AS CNT 
+        FROM OD GROUP BY TO_CHAR(OD_CODE, 'YYYYMM')) SI2
+     ON SUBSTR(SI.ODCODE, 1,6) =  SI2.ODDATE
+GROUP BY SUBSTR(SI.ODCODE, 1,6), SI2.CNT;
+
+
+
+
+
+SELECT * FROM OD;
+
+/* 특정월의 베스트 상품(판매갯수) 현황 
+    ------------------------------------------------------
+      매출월    상품코드    상품명    주문건수       매출액
+    ------------------------------------------------------
+*/
+CREATE OR REPLACE VIEW BESTVIEW
+AS
+SELECT SUBSTR(ODCODE, 1, 6) AS SALESMONTH, 
+       GOCODE, GONAME,
+       SUM(CNT) AS MONTHCNT,
+       SUM(QTY) AS QTY,
+       SUM(AMOUNT) AS MONTHAMOUNT
+FROM SALESINFO
+GROUP BY SUBSTR(ODCODE, 1, 6), GOCODE, GONAME;
+
+
+
+SELECT * FROM BESTVIEW;
+SELECT SALESMONTH, MAX(QTY)
+            FROM BESTVIEW GROUP BY SALESMONTH;
+
+
+
+SELECT SALESMONTH, GOCODE, GONAME, MONTHCNT, QTY, MONTHAMOUNT
+FROM BESTVIEW
+WHERE (SALESMONTH, QTY) 
+        IN(SELECT SALESMONTH, MAX(QTY)
+            FROM BESTVIEW GROUP BY SALESMONTH);
+
+
+
+
+
+
+
+
+
+
+
+
 

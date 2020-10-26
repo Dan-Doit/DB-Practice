@@ -437,9 +437,106 @@ DELETE FROM PO;
 
 
 
+/* 특정일(특정범위)의 상품별 판매 현황 
+    -- 일일 매출현황
+    -- 월별 매출현황
+    ---------------------------------------------------
+      상품코드     상품명       주문건수       매출액
+       OT GO        GO           OT        OT * GO
+    ---------------------------------------------------*/
+CREATE OR REPLACE VIEW V1 AS 
+SELECT TO_CHAR(OT.OT_ODCODE,'YYYYMMDD') AS TODATE,
+OT.OT_GOCODE AS GOCODE, 
+GO.GO_NAME AS GONAME,
+COUNT(OT_GOCODE) AS CNT,
+SUM(OT_QTY) AS TOTAL,
+SUM(OT_QTY*GO_PRICE) AS AMOUNT
+FROM GO INNER JOIN OT ON GO.GO_CODE = OT.OT_GOCODE
+GROUP BY TO_CHAR(OT_ODCODE,'YYYYMMDD'), OT_GOCODE, GO_NAME;
+
+
+SELECT TO_CHAR(OT_ODCODE,'YYYYMMDD'), OT_GOCODE
+FROM OT
+GROUP BY TO_CHAR(OT_ODCODE,'YYYYMMDD'), OT_GOCODE;
+
+
+-- 일일매출
+SELECT 
+GOCODE,
+GONAME,
+CNT,
+AMOUNT
+FROM V1
+WHERE TODATE = '20201016';
+
+-- 월별 매출
+SELECT 
+GOCODE,
+GONAME,
+SUM(CNT),
+SUM(AMOUNT)
+FROM V1
+WHERE SUBSTR(TODATE,1,6) = '202010'
+GROUP BY GOCODE,GONAME;
+
+
+  
+/* 특정 상품의 월별 매출 추이 
+    --------------------------------------
+      매출월        주문건수       매출액
+    --------------------------------------*/
+    SELECT ANS, MUL
+    FROM (SELECT 
+          SUBSTR(TODATE,1,6) AS ANS, 
+          SUM(TOTAL) AS MUL
+          FROM V1  
+          GROUP BY SUBSTR(TODATE,1,6)
+    )QQ
+    WHERE (ANS,MUL) IN(ODCODE);
+    
 
 
 
+/* 특정월의 베스트 상품(판매갯수) 현황 
+    ------------------------------------------------------
+      매출월    상품코드    상품명    주문건수       매출액
+    ------------------------------------------------------*/
+--    SELECT TO_CHAR(OT.OT_ODCODE,'YYYYMMDD') AS TODATE,
+--OT.OT_GOCODE AS GOCODE, 
+--GO.GO_NAME AS GONAME,
+--COUNT(OT_GOCODE) AS CNT,
+--SUM(OT_QTY) AS TOTAL,
+--SUM(OT_QTY*GO_PRICE) AS AMOUNT
+    
+
+
+ CREATE OR REPLACE VIEW V2 AS  
+SELECT TO_CHAR(OT.OT_ODCODE,'YYYYMM') AS TODATE,
+OT.OT_GOCODE AS GOCODE, 
+GO.GO_NAME AS GONAME,
+COUNT(OT_GOCODE) AS CNT,
+SUM(OT_QTY) AS TOTAL,
+SUM(OT_QTY*GO_PRICE) AS AMOUNT
+FROM GO INNER JOIN OT ON GO.GO_CODE = OT.OT_GOCODE
+GROUP BY TO_CHAR(OT_ODCODE,'YYYYMM'), OT_GOCODE, GO_NAME;
+    
+
+
+
+SELECT 
+*
+FROM V2
+WHERE (TODATE, TOTAL) IN (
+ SELECT
+    KK,
+    MAX(OO)
+    FROM(
+    SELECT 
+    SUBSTR(TODATE,1,6) AS KK,
+    SUM(TOTAL) AS OO
+    FROM V1
+    GROUP BY SUBSTR(TODATE,1,6),GOCODE,GONAME)QQ
+    GROUP BY KK);
 
 
 
