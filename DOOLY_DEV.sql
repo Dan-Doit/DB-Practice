@@ -288,3 +288,189 @@ WHERE CM_NAME LIKE '%' || (SELECT ST_NAME FROM ST WHERE ST_CODE = 'D003')||'%' ;
 COMMIT;
 
 
+
+
+
+/* JOIN과 GROUP BY 활용 예제 */
+/* 특정일(특정범위)의 상품별 판매 현황 
+    -- 일일 매출현황
+    -- 월별 매출현황
+    ---------------------------------------------------
+      상품코드     상품명       주문건수       매출액
+       OT GO        GO           OT        OT * GO
+    ---------------------------------------------------*/
+CREATE OR REPLACE VIEW ODINFO AS
+SELECT 
+OT_ODCODE AS ODCODE,
+GO_CODE AS GOCODE,
+GO_NAME AS GONAME,
+OT_ODCODE AS CNT,
+OT_QTY AS QTY,
+OT_QTY * GO_PRICE AS AMOUNT
+FROM OT INNER JOIN GO ON GO.GO_CODE = OT.OT_GOCODE;
+
+SELECT GOCODE, GONAME, COUNT(ODCODE), SUM(AMOUNT)
+FROM ODINFO
+WHERE TO_CHAR(ODCODE,'YYYYMMDD') >= '20200820' AND TO_CHAR(ODCODE,'YYYYMMDD') <= '20201020'
+GROUP BY GOCODE, GONAME;
+
+
+
+
+-- 월별 주문량
+SELECT SUBSTR(ODCODE,1,6), COUNT(SUBSTR(ODCODE,1,6))
+FROM(SELECT ODCODE
+FROM ODINFO
+GROUP BY ODCODE)ACE
+GROUP BY SUBSTR(ODCODE,1,6);
+-- 월별 금액
+SELECT 
+TO_CHAR(ODCODE,'YYYYMM'),
+SUM(AMOUNT)
+FROM ODINFO
+GROUP BY TO_CHAR(ODCODE,'YYYYMM');
+
+
+
+/* 특정 상품의 월별 매출 추이 
+    --------------------------------------
+      매출월        주문건수       매출액
+    --------------------------------------*/
+SELECT 
+A.HH AS 판매월,
+A.QQ AS 주문수량,
+B.QQ AS 총금액
+FROM 
+(SELECT 
+SUBSTR(ODCODE,1,6) AS HH, 
+COUNT(SUBSTR(ODCODE,1,6)) AS QQ
+FROM(SELECT ODCODE
+FROM ODINFO
+GROUP BY ODCODE)ACE
+GROUP BY SUBSTR(ODCODE,1,6))A INNER JOIN
+(SELECT 
+TO_CHAR(ODCODE,'YYYYMM') AS HH,
+SUM(AMOUNT) AS QQ
+FROM ODINFO
+GROUP BY TO_CHAR(ODCODE,'YYYYMM'))B
+ON A.HH = B.HH;
+
+
+/* 특정월의 베스트 상품(판매갯수) 현황 
+    ------------------------------------------------------
+      매출월    상품코드    상품명    주문건수       매출액
+    ------------------------------------------------------*/
+    SELECT *
+    FROM ODINFO;
+    
+    -- 맥스값 만들기
+    SELECT 날짜,MAX(상품수량)
+    FROM TT
+    GROUP BY 날짜;
+    
+    -- 값 불러오기
+   CREATE OR REPLACE VIEW TT AS  
+   SELECT 
+   TO_CHAR(ODCODE,'YYYYMM') AS 날짜, 
+   GONAME AS 상품이름,
+   GOCODE AS 상품코드,
+   SUM(QTY) AS 상품수량,
+   SUM(AMOUNT) AS 총가격
+   FROM ODINFO
+   GROUP BY TO_CHAR(ODCODE,'YYYYMM'),GONAME,GOCODE;
+   
+   
+   SELECT * 
+   FROM TT
+   WHERE (날짜, 상품수량) IN(SELECT 날짜,MAX(상품수량)
+   FROM TT
+   GROUP BY 날짜);
+   
+
+
+CREATE OR REPLACE VIEW ODINFO AS
+SELECT 
+OT_ODCODE AS ODCODE,
+GO_CODE AS GOCODE,
+GO_NAME AS GONAME,
+OT_ODCODE AS CNT,
+OT_QTY AS QTY,
+OT_QTY * GO_PRICE AS AMOUNT
+FROM OT INNER JOIN GO ON GO.GO_CODE = OT.OT_GOCODE;
+
+/* 시간대별 매출추이 
+    --------------------------------
+      시간     평균주문건수  평균매출액
+    --------------------------------*/
+
+SELECT TO_CHAR(OD_CODE,'DDHH24') FROM OD
+GROUP BY TO_CHAR(OD_CODE,'DDHH24') ;
+
+SELECT 
+AA.HH AS 시간,
+AA.AG AS 평균건수,
+TO_CHAR(BB.AG,'999,999,0') AS 평균매출액
+FROM(
+SELECT  
+SUBSTR(TIMES,3,2) AS HH,
+ROUND(SUM(CNT)/COUNT(TIMES),1) AS AG
+FROM(
+
+SELECT
+TO_CHAR(OD_CODE,'DDHH24') AS TIMES,
+COUNT(*) AS CNT
+FROM OD
+GROUP BY TO_CHAR(OD_CODE,'DDHH24')
+
+)QQ
+GROUP BY SUBSTR(TIMES,3,2))AA INNER JOIN (
+-- INNER JOIN
+SELECT 
+SUBSTR(HH,3,2) AS HH,
+ROUND(SUM(AMOUNT)/COUNT(HH),0) AS AG
+FROM(
+(SELECT 
+TO_CHAR(ODCODE,'DDHH24') AS HH,
+SUM(AMOUNT) AS AMOUNT
+FROM ODINFO
+GROUP BY TO_CHAR(ODCODE,'DDHH24')))
+GROUP BY SUBSTR(HH,3,2))BB
+-- ON 
+ON AA.HH = BB.HH;
+
+
+
+/* 요일별 매출추이 
+    --------------------------------
+      요일     평균주문건수  평균매출액
+    --------------------------------*/
+   SELECT 
+   AA.DD AS 요일,
+   AA.CC AS 평균주문건수,
+   TO_CHAR(BB.CC,'999,999,0') AS 평균매출액
+   FROM(
+   SELECT TO_CHAR(TO_DATE(DD, 'YYYYMMDD'),'DAY') AS DD,
+          ROUND(AVG(CC),1) AS CC
+   FROM(
+   
+   SELECT TO_CHAR(OD_CODE, 'YYYYMMDD') AS DD,
+   COUNT(OD_CODE) AS CC
+   FROM OD
+   GROUP BY TO_CHAR(OD_CODE, 'YYYYMMDD'))AA
+   
+   GROUP BY TO_CHAR(TO_DATE(DD, 'YYYYMMDD'),'DAY'))AA
+   INNER JOIN(
+     SELECT TO_CHAR(TO_DATE(DD, 'YYYYMMDD'),'DAY') AS DD,
+          AVG(CC) AS CC
+   FROM(
+   
+   SELECT TO_CHAR(ODCODE, 'YYYYMMDD') AS DD,
+   SUM(AMOUNT) AS CC
+   FROM ODINFO
+   GROUP BY TO_CHAR(ODCODE, 'YYYYMMDD'))AA
+   
+   GROUP BY TO_CHAR(TO_DATE(DD, 'YYYYMMDD'),'DAY'))BB
+   ON AA.DD = BB.DD;
+
+
+
