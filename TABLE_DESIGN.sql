@@ -1391,7 +1391,143 @@ GROUP BY SALESDAY;
 SELECT V1.SALESDAY, V1.ORDERSAVG, V2.AMOUNTAVG
 FROM V1 INNER JOIN V2 ON V1.SALESDAY = V2.SALESDAY;
 
+/* 2020-10-28 OUTER JOIN 
+   OUTER JOIN
+    - 두 개의 테이블에 공통된 데이터를 가진 컬럼이 존재
+    - [LEFT | RIGHT | FULL] OUTER JOIN
+       지정한 방향의 테이블의 데이터는 조인 조건에 만족하지 않아도 강제 출력
+    - NULL DATA의 회피 강구
+      -- NVL, NVL2, * COALESCE() 
+*/
+-- 상품별 매출현황
+/*--------------------------------------------
+   상품코드   상품명    판매량     총매출액
+---------------------------------------------*/
+SELECT * FROM GO;
+SELECT * FROM OT;
 
+SELECT  GO.GO_CODE AS GOCODE,
+        GO.GO_NAME AS GONAME,
+        SUM(COALESCE(OT.OT_QTY, 0)) AS QTY,
+        SUM(COALESCE(OT.OT_QTY * GO.GO_PRICE, 0)) AS AMOUNT
+FROM OT RIGHT OUTER JOIN GO ON OT.OT_GOCODE = GO.GO_CODE
+GROUP BY GO_CODE, GO.GO_NAME;
 
+/* OUTER JOIN의 활용예제 */
+/* 1. 특정 상점의 직원의 로그인과 로그아웃 횟수 기록 출력 
+    ---------------------------------------------
+      사원코드   사원명   로그인횟수   로그아웃 횟수
+    ---------------------------------------------
+*/ 
+-- STEP 1. 로그인-아웃 횟수 조회
+SELECT HI_EMSTCODE AS STCODE, HI_EMCODE AS EMCODE, COUNT(HI_STATE) AS INCNT
+FROM HI 
+WHERE HI_STATE = 1
+GROUP BY HI_EMSTCODE, HI_EMCODE;
+
+SELECT HI_EMSTCODE AS STCODE, HI_EMCODE AS EMCODE, COUNT(HI_STATE) AS OUTCNT
+FROM HI 
+WHERE HI_STATE = -1
+GROUP BY HI_EMSTCODE, HI_EMCODE;
+
+-- STEP 2. STEP1에서 조회한 QUERY를 FULL OUTER 조인 후 VIEW 생성
+CREATE OR REPLACE VIEW ACCESSINFO
+AS
+SELECT  COALESCE(LI.STCODE, LO.STCODE) AS STCODE,
+        COALESCE(LI.EMCODE, LO.EMCODE) AS EMCODE,
+        COALESCE(LI.INCNT, 0) AS INCNT,
+        COALESCE(LO.OUTCNT, 0) AS OUTCNT
+FROM (SELECT HI_EMSTCODE AS STCODE, HI_EMCODE AS EMCODE, COUNT(HI_STATE) AS INCNT
+      FROM HI 
+      WHERE HI_STATE = 1
+      GROUP BY HI_EMSTCODE, HI_EMCODE) LI
+     FULL OUTER JOIN 
+     (SELECT HI_EMSTCODE AS STCODE, HI_EMCODE AS EMCODE, COUNT(HI_STATE) AS OUTCNT
+      FROM HI 
+      WHERE HI_STATE = -1
+      GROUP BY HI_EMSTCODE, HI_EMCODE) LO
+     ON LI.STCODE = LO.STCODE AND LI.EMCODE = LO.EMCODE;
+
+SELECT * FROM ACCESSINFO;
+-- STEP 3. EMPLOYEES 테이블과의 조인
+SELECT EM.EM_STCODE AS STCODE, 
+       EM.EM_CODE AS EMCODE,
+       EM.EM_NAME AS EMNAME,
+       COALESCE(AC.INCNT,0) AS INCNT, 
+       COALESCE(AC.OUTCNT, 0) AS OUTCNT
+FROM EM LEFT OUTER JOIN ACCESSINFO AC 
+ON EM.EM_STCODE = AC.STCODE AND EM.EM_CODE = AC.EMCODE;
+
+/* 2. 특정 상점의 모든 직원중 로그인 횟수가 가장 많은 직원의 정보 출력 
+    ----------------------------------------
+      사원코드   사원명   로그인횟수   사원등급
+    ----------------------------------------
+    *** 출력 컬럼에 로그인 횟수가 없다면 SUB-QUERY로만 진행
+*/ 
+SELECT EM.EM_STCODE, EM.EM_CODE, AI.INCNT, EM.EM_LEVEL 
+FROM ACCESSINFO AI INNER JOIN EM 
+ON AI.STCODE = EM.EM_STCODE AND AI.EMCODE = EM.EM_CODE
+WHERE INCNT IN (SELECT MAX(INCNT) FROM ACCESSINFO);
+
+-- 로그인 횟수가 없는 경우
+SELECT EM_STCODE, EM_CODE, EM_LEVEL 
+FROM EM 
+WHERE (EM_STCODE, EM_CODE) IN(SELECT STCODE, EMCODE 
+                                FROM ACCESSINFO 
+                                WHERE INCNT IN (SELECT MAX(INCNT) FROM ACCESSINFO));
+
+/* 3. 특정 상점의 모든 직원을 대상으로 직원별 판매실적을 출력
+    ----------------------------------------
+      사원코드   사원명   주문건수    매출액
+    ----------------------------------------
+    *** 주문코드와 사원은 1:1
+*/ 
+-- STEP 1. 주문별 매출액 합계
+SELECT  OT.OT_ODCODE AS ODCODE,
+        SUM(OT.OT_QTY * GO.GO_PRICE) AS AMOUNT
+FROM OT INNER JOIN GO ON OT.OT_GOCODE = GO.GO_CODE
+GROUP BY OT.OT_ODCODE;
+
+-- STEP 2. 주문테이블과의 조인후 VIEW 생성
+CREATE OR REPLACE VIEW SALES
+AS
+SELECT  OD.OD_EMSTCODE AS STCODE,
+        OD.OD_EMCODE AS EMCODE,
+        OT.OT_ODCODE AS ODCODE,
+        SUM(OT.OT_QTY * GO.GO_PRICE) AS AMOUNT
+FROM OT INNER JOIN GO ON OT.OT_GOCODE = GO.GO_CODE
+        INNER JOIN OD ON OT.OT_ODCODE = OD.OD_CODE
+GROUP BY OD.OD_EMSTCODE, OD.OD_EMCODE, OT.OT_ODCODE;
+
+-- STEP 3. 사원테이블과의 OUTER JOIN
+SELECT  COALESCE(SA.STCODE, EM.EM_STCODE) AS STCODE,
+        COALESCE(SA.EMCODE, EM.EM_CODE) AS EMCODE,
+        EM.EM_NAME AS EMNAME,
+        SA.ODCODE, SA.AMOUNT
+FROM SALES SA RIGHT OUTER JOIN EM
+           ON SA.STCODE = EM.EM_STCODE AND SA.EMCODE = EM.EM_CODE;
+
+-- STEP 4. GROUP BY
+SELECT  COALESCE(SA.STCODE, EM.EM_STCODE) AS STCODE,
+        COALESCE(SA.EMCODE, EM.EM_CODE) AS EMCODE,
+        EM.EM_NAME AS EMNAME,
+        COUNT(SA.ODCODE) AS ORDERS, 
+        TO_CHAR(SUM(COALESCE(SA.AMOUNT,0)), '9,999,990') AS TOTAMOUNTS
+FROM SALES SA RIGHT OUTER JOIN EM
+           ON SA.STCODE = EM.EM_STCODE AND SA.EMCODE = EM.EM_CODE
+GROUP BY COALESCE(SA.STCODE, EM.EM_STCODE), 
+         COALESCE(SA.EMCODE, EM.EM_CODE), EM.EM_NAME;
+         
+/* 4. 모든 상품의 정보 출력
+    --------------------------------------------
+      상품코드   상품명   가격    재고     유통기한
+    --------------------------------------------
+*/ 
+
+/* 5. 4의 결과중 판매가능한 상품정보를 출력
+    --------------------------------------------
+      상품코드   상품명   가격    재고     유통기한
+    --------------------------------------------
+*/ 
 
 

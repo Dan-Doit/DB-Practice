@@ -473,4 +473,202 @@ ON AA.HH = BB.HH;
    ON AA.DD = BB.DD;
 
 
+/* OUTER JOIN의 활용예제 */
+
+-- 특정 상점의 직원의 로그인과 로그아웃 횟수 기록 출력
+/*
+-----------------------------------------------------
+사원코드      사원명       로그인횟수       로그아웃 횟수
+-----------------------------------------------------*/
+
+-- RIGHT OUTER JOIN
+SELECT 
+COALESCE(AA.CODE,BB.CODE) AS CODE,
+COALESCE(LOGIN,0) AS LOGIN,
+COALESCE(LOGOUT,0) AS LOGOUT
+FROM
+    (SELECT 
+     HI_EMCODE AS CODE,
+     COUNT(HI_STATE) AS LOGIN
+     FROM HI 
+     WHERE HI_STATE = 1
+     GROUP BY HI_EMCODE)AA 
+FULL OUTER JOIN(
+-- JOIN
+     SELECT 
+     HI_EMCODE AS CODE,
+     COUNT(HI_STATE) AS LOGOUT
+     FROM HI 
+     WHERE HI_STATE = -1
+     GROUP BY HI_EMCODE)BB ON AA.CODE = BB.CODE;
+
+
+
+-- FILL OUTER JOIN
+
+SELECT 
+EM_CODE AS 직원코드,
+EM_NAME AS 직원명,
+COALESCE(LOGIN, 0) AS 로그인횟수,
+COALESCE(LOGOUT,0) AS 로그아웃횟수
+FROM(
+     SELECT 
+     COALESCE(AA.CODE,BB.CODE) AS CODE,
+     COALESCE(LOGIN,0) AS LOGIN,
+     COALESCE(LOGOUT,0) AS LOGOUT
+FROM
+    (SELECT 
+     HI_EMCODE AS CODE,
+     COUNT(HI_STATE) AS LOGIN
+     FROM HI 
+     WHERE HI_STATE = 1
+     GROUP BY HI_EMCODE)AA 
+FULL OUTER JOIN(
+-- JOIN
+     SELECT 
+     HI_EMCODE AS CODE,
+     COUNT(HI_STATE) AS LOGOUT
+     FROM HI 
+     WHERE HI_STATE = -1
+     GROUP BY HI_EMCODE)BB ON AA.CODE = BB.CODE)AA
+-- JOIN
+RIGHT OUTER JOIN "EM" ON EM_CODE = AA.CODE
+-- 특정상점
+WHERE EM_STCODE = 'D002';
+
+
+
+
+
+/* 2. 특정 상점의 모든 직원중 로그인 횟수가 가장 많은 직원의 정보 출력 
+    ----------------------------------------
+      사원코드   사원명   로그인횟수   사원등급
+    ----------------------------------------*/
+
+-- MAX 로그인
+SELECT
+YY AS YY,
+MAX(LOGIN)
+FROM(
+     SELECT 
+     HI.HI_EMSTCODE AS YY,
+     HI_EMCODE AS CODE,
+     COUNT(HI_STATE) AS LOGIN
+     FROM HI 
+     WHERE HI_STATE = 1
+     GROUP BY HI_EMCODE,HI.HI_EMSTCODE)
+GROUP BY YY;
+
+
+-- 특정 상점의 제일 많이 로그인한사람 찾기
+SELECT 
+EM_CODE 사원코드,
+EM_NAME 사원이름,
+EM_LEVEL 사원등급,
+COALESCE(LOGIN, 0) 로그인횟수
+FROM(
+     SELECT 
+     EM_CODE AS CODE,
+     COUNT(HI_STATE) AS LOGIN
+     FROM HI LEFT OUTER JOIN "EM" ON "EM".EM_CODE = HI.HI_EMCODE
+     WHERE HI_STATE = 1
+     GROUP BY EM_CODE)AA 
+
+RIGHT OUTER JOIN "EM" ON EM_CODE = AA.CODE
+
+-- WHERE
+WHERE (EM_STCODE,AA.LOGIN) IN(SELECT
+YY AS YY,
+MAX(LOGIN)
+FROM(
+     SELECT 
+     HI.HI_EMSTCODE AS YY,
+     HI_EMCODE AS CODE,
+     COUNT(HI_STATE) AS LOGIN
+     FROM HI 
+     WHERE HI_STATE = 1
+     GROUP BY HI_EMCODE,HI.HI_EMSTCODE)
+     GROUP BY YY);
+
+
+
+
+/* 3. 특정 상점의 모든 직원을 대상으로 직원별 판매실적을 출력
+    ----------------------------------------
+      사원코드   사원명   주문건수    매출액
+      EM        EM      OD          OD, OT
+    ----------------------------------------*/ 
+-- 합계
+SELECT 
+OD_EMCODE AS CMCODE,
+SUM(OT_QTY * GO_PRICE) AS AMOUNT
+FROM OT INNER JOIN OD ON OT.OT_ODCODE = OD_CODE
+INNER JOIN GO ON OT_GOCODE = GO_CODE
+GROUP BY OD_EMCODE;
+
+-- 주문
+SELECT 
+OD_EMCODE,
+COUNT(OD_CODE)
+FROM OD
+GROUP BY OD_EMCODE;
+
+SELECT 
+EM_CODE AS 사원코드,
+EM_NAME AS 사원이름,
+ORDERS AS 주문건수,
+AMOUNT AS 매출액
+FROM(SELECT 
+     OD_EMCODE AS EMCODE,
+     SUM(OT_QTY * GO_PRICE) AS AMOUNT
+     FROM OT INNER JOIN OD ON OT.OT_ODCODE = OD_CODE 
+     INNER JOIN GO ON OT_GOCODE = GO_CODE
+     GROUP BY OD_EMCODE)AA 
+-- JOIN
+INNER JOIN(
+     SELECT 
+     OD_EMCODE AS EMCODE,
+     COUNT(OD_CODE) AS ORDERS
+     FROM OD
+     GROUP BY OD_EMCODE)BB
+ON AA.EMCODE = BB.EMCODE RIGHT OUTER JOIN "EM" 
+ON AA.EMCODE = "EM".EM_CODE
+
+-- 특정상점
+WHERE EM_STCODE = 'D001';
+
+
+
+/* 4. 모든 상품의 정보 출력
+    --------------------------------------------
+      상품코드   상품명   가격    재고     유통기한
+    --------------------------------------------*/
+SELECT 
+GO_CODE AS 상품코드,
+GO_NAME AS 상품명,
+GO_PRICE AS 가격,
+COALESCE(SC_STOCKS, 0) AS 재고,
+COALESCE(TO_CHAR(SC_EXPIRE,'YYYYMMDDHH24MISS'),'--------------') AS 유통기한
+FROM GO LEFT OUTER JOIN SC ON GO_CODE = SC_GOCODE;
+
+/* 5. 4의 결과중 판매가능한 상품정보를 출력
+    --------------------------------------------
+      상품코드   상품명   가격    재고     유통기한
+    --------------------------------------------*/ 
+-- VIEW 만들기
+CREATE OR REPLACE VIEW CCC AS 
+SELECT 
+GO_CODE AS 상품코드,
+GO_NAME AS 상품명,
+GO_PRICE AS 가격,
+COALESCE(SC_STOCKS, 0) AS 재고,
+COALESCE(TO_CHAR(SC_EXPIRE,'YYYYMMDDHH24MISS'),'--------------') AS 유통기한
+FROM GO LEFT OUTER JOIN SC ON GO_CODE = SC_GOCODE;
+
+-- VIEW를 이용해 유효상품 출력
+SELECT
+상품코드, 상품명, 가격, 재고, 유통기한 
+FROM CCC
+WHERE 재고 > 0 AND 유통기한 > SYSDATE;
+
 
