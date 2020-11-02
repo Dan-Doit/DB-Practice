@@ -1591,7 +1591,7 @@ SELECT * FROM OT;
 SELECT * FROM HOONZZANG.ORDERDETAIL;
 -- 상품판매 시 재고정보 UPDATE
 /*CREATE OR REPLACE TRIGGER UPD_STOCKS
-  AFTER INSERT ON COMEIN.ORDERDETAIL
+  AFTER INSERT ON HOONZZANG.ORDERDETAIL
   FOR EACH ROW
  
   DECLARE
@@ -1630,23 +1630,220 @@ VALUES(DEFAULT, 'I001', '9999', '7777', 'P');
 INSERT INTO OT(OT_ODCODE, OT_GOCODE, OT_QTY, OT_STATE) 
 VALUES('20201030134418', '9999', 10, 'P');
 SELECT * FROM OT;
-
+DELETE FROM OT;
 COMMIT;
 SELECT * FROM SC;
 ROLLBACK;
 SELECT * FROM USER_CONSTRAINTS WHERE TABLE_NAME='EMPLOYEES';
 
 
+/* 2020-11-02 Procedure */
+CREATE OR REPLACE PROCEDURE REG_ORDER
+ (STCODE    IN OD.OD_EMSTCODE%TYPE,
+  EMCODE    IN OD.OD_EMCODE%TYPE,
+  CMCODE    IN OD.OD_CMCODE%TYPE,
+  ODSTATE   IN OD.OD_STATE%TYPE
+  ODCODE    OUT NVARCHAR2)
+ IS
+ 
+ BEGIN
+    INSERT INTO OD(OD_CODE, OD_EMSTCODE, OD_EMCODE, OD_CMCODE, OD_STATE) 
+    VALUES(DEFAULT, STCODE, EMCODE, CMCODE, ODSTATE);
+
+    SELECT TO_CHAR(MAX(OD_CODE), 'YYYYMMDDHH24MISS') INTO ODCODE
+    FROM OD 
+    WHERE OD_EMSTCODE = STCODE AND OD_EMCODE = EMCODE;
+ END REG_ORDER;
+ 
+ 
+
+SET SERVEROUTPUT ON;
+
+DECLARE
+    ODCODE NVARCHAR2(14);
+BEGIN
+    REG_ORDER('I001', '9999', '7777', 'P', ODCODE);
+    DBMS_OUTPUT.PUT_LINE('ODCODE : ' || ODCODE);
+END;
+
+SELECT * FROM OD WHERE OD_CODE = '20201102111446';
+ROLLBACK;
+DELETE FROM OD;
+DELETE FROM OT;
+SELECT * FROM EM;
+SELECT * FROM CM;
+
+/*
+public String regOrder(String stCode, String emCode, String cmCode, String state) {
+		String odCode = null;
+		CallableStatement proc;
+		String sql = "{call REG_ORDER(?, ?, ?, ?, ?)}";
+		
+		try {
+			proc = conn.prepareCall(sql);
+			proc.setNString(1, stCode);
+			proc.setNString(2, emCode);
+			proc.setNString(3, cmCode);
+			proc.setNString(4, state);
+			proc.registerOutParameter(5, Types.NVARCHAR);
+			
+			proc.execute();
+			odCode = proc.getString(5);
+			
+			proc.close();
+		} catch (SQLException e) {
+			e.printStackTrace();
+		}
+		
+		return odCode;
+	}
+
+*/
+/* 2020-11-02 Procedure :: INS_OT 
+    :: PARAM
+    @ODCODE IN
+    @GOCODE IN
+    @GOQTY  IN
+    @OTSTATE  IN
+*/
+CREATE OR REPLACE PROCEDURE INS_OT(
+  ODCODE    IN  NVARCHAR2,
+  GOCODE    IN  OT.OT_GOCODE%TYPE,
+  GOQTY     IN  OT.OT_QTY%TYPE,
+  OTSTATE   IN  OT.OT_STATE%TYPE
+)
+IS
+
+BEGIN
+    INSERT INTO OT(OT_ODCODE, OT_GOCODE, OT_QTY, OT_STATE) 
+    VALUES(TO_DATE(ODCODE, 'YYYYMMDDHH24MISS'), GOCODE, GOQTY, OTSTATE);
+END INS_OT;
 
 
+SET SERVEROUTPUT ON;
+
+DECLARE
+  ODCODE    NCHAR(14) := '20201102111446';
+  GOCODE    NCHAR(4)  := '9999';
+  QTY       NUMBER    := 2;
+  OTSTATE   NCHAR(1)  := 'P';
+BEGIN
+  INS_OT(ODCODE, GOCODE, QTY, OTSTATE);
+  SELECT OT_ODCODE, OT_GOCODE, OT_QTY, OT_STATE 
+  INTO ODCODE, GOCODE, QTY, OTSTATE
+  FROM OT WHERE OT_ODCODE = '20201102111446';
+  
+  DBMS_OUTPUT.PUT_LINE('ODCODE : ' || ODCODE);
+  DBMS_OUTPUT.PUT_LINE('GOCODE : ' || GOCODE);
+  DBMS_OUTPUT.PUT_LINE('QTY : ' || QTY);
+  DBMS_OUTPUT.PUT_LINE('STATE : ' || OTSTATE);
+END;
+
+SELECT * FROM GO;
+SELECT * FROM OT;
+
+INSERT INTO GO(GO_CODE, GO_NAME, GO_PRICE, GO_COMMENTS) 
+VALUES('9998', '새우깡', 1500, '가정용');
+INSERT INTO GO(GO_CODE, GO_NAME, GO_PRICE, GO_COMMENTS) 
+VALUES('9997', '새우깡', 3500, '대용량');
+INSERT INTO GO(GO_CODE, GO_NAME, GO_PRICE, GO_COMMENTS) 
+VALUES('9996', '양파깡', 2000, '가정용');
+INSERT INTO GO(GO_CODE, GO_NAME, GO_PRICE, GO_COMMENTS) 
+VALUES('9995', '양파깡', 5000, '대용량');
+COMMIT;
 
 
+SELECT * FROM OD;
+SELECT * FROM OT;
+
+/* APPLICATION CODE
+// Bean Creation :: backController
+		--OrdersBean ob = new OrdersBean();
+		--ob.setStCode("I001");
+		--ob.setEmCode("9999");
+		--ob.setCmCode("7777");
+		--ob.setOrderState("C");
+		
+		// 상품정보 입력 Bean Creation :: backController
+		// ArrayList<OrdersBean> list 담기 :: backController
+		ArrayList<OrdersBean> list = new ArrayList<OrdersBean>();
+		OrdersBean ob1 = new OrdersBean();
+		// first Goods
+		ob1.setStCode("I001");
+		ob1.setEmCode("9999");
+		ob1.setCmCode("7777");
+		ob1.setOrderState("C");
+		ob1.setGoCode("9998");
+		ob1.setQty(10);
+		ob1.setGoState("P");
+		list.add(ob1);
+		
+		// Second Goods
+		OrdersBean ob2 = new OrdersBean();
+		ob2.setStCode("I001");
+		ob2.setEmCode("9999");
+		ob2.setCmCode("7777");
+		ob2.setOrderState("C");
+		ob2.setGoCode("9997");
+		ob2.setQty(10);
+		ob2.setGoState("P");
+		list.add(ob2);
+		
+		// Third Goods
+		OrdersBean ob3 = new OrdersBean();
+		ob3.setStCode("I001");
+		ob3.setEmCode("9999");
+		ob3.setCmCode("7777");
+		ob3.setOrderState("C");
+		ob3.setGoCode("9996");
+		ob3.setQty(10);
+		ob3.setGoState("P");
+		list.add(ob3);
+		
+		// list --> Service
+		DataAccessObject dao = new DataAccessObject();
+		
+		dao.createConnection();
+		dao.setAutoTran(false);
+		
+		dao.regOrder(list.get(0));
+		
+		// list(0)에 담겨온 OdCode list(1), list(2)복사
+		list.get(1).setOdCode(list.get(0).getOdCode());
+		list.get(2).setOdCode(list.get(0).getOdCode());
+		
+		// OT 상품 등록
+		boolean tran = false;
+		for(OrdersBean ob : list) {
+			if(dao.insOrder(ob)) {
+				tran = true;
+			}else {
+				tran = false;
+				break;
+			}
+		}
+		if(tran) {
+			// Orders Table에 OD_STATE 값을 'P' 로 업데이트
+		}
+		
+		dao.endTransaction(tran);
+		if(tran) {
+			System.out.println("주문성공");
+		}else {
+			System.out.println("주문실패");
+		}
+*/
+
+SELECT * FROM OD;
 
 
-
-
-
-
-
-
-
+/*
+CREATE OR REPLACE PROCEDURE INS_OD
+(ODCODE IN OD.OD_CODE%TYPE,
+STCODE IN OD.OD_EMSTCODE%TYPE,
+EMCODE IN OD.OD_EMCODE%TYPE
+)
+IS
+BEGIN
+END INS_OD;
+*/
